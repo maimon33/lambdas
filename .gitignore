@@ -1,0 +1,40 @@
+# Virtual environments
+.virtualenv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Deployment artifacts
+deployment-package.zip
+*.zip
+
+# Logs
+nohup.out
+*.log
+
+# AWS credentials (if accidentally placed here)
+.aws/
+credentials
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Terraform state (if used)
+*.tfstate
+*.tfstate.backup
+
