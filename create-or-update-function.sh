@@ -13,6 +13,8 @@ USER_NAME="`echo $user_info | awk ' {print $3} '`"
 if ! aws iam list-roles --region $REGION | grep "${FUNCTION_NAME}LambdaRole" > /dev/null; then \
     aws iam create-role --region $REGION --role-name "${FUNCTION_NAME}LambdaRole" \
     --assume-role-policy-document file://lambda-role-trust-policy.json; \
+    echo "Waiting for IAM role to propagate..."; \
+    sleep 10; \
 fi
 
 aws iam put-role-policy --region $REGION --role-name "${FUNCTION_NAME}LambdaRole" \

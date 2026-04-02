@@ -1,0 +1,122 @@
+name: Lambda CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: "${{ matrix.lambda }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lambda: [ami-create, aws-cost-report, count-ec2-instances, slack-app]
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.lambda }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Replicate start.sh symlink logic for lambdas that rely on the root script
+      - name: Setup shared script symlinks
+        working-directory: .
+        run: |
+          for dir in ami-create count-ec2-instances; do
+            if [ ! -f "$dir/create-or-update-function.sh" ]; then
+              ln -sf ../create-or-update-function.sh "$dir/create-or-update-function.sh"
+              echo "Created symlink: $dir/create-or-update-function.sh"
+            fi
+          done
+
+      # --- Makefile validation ---
+
+      - name: Validate required files
+        run: |
+          required="main.py requirements.txt Makefile lambda-role-policy.json lambda-role-trust-policy.json"
+          missing=0
+          for f in $required; do
+            if [ ! -f "$f" ]; then
+              echo "MISSING: $f"
+              missing=1
+            else
+              echo "OK: $f"
+            fi
+          done
+          [ $missing -eq 0 ]
+
+      - name: Validate Makefile targets
+        run: |
+          required_targets="run deploy update"
+          missing=0
+          for target in $required_targets; do
+            if grep -q "^${target}:" Makefile; then
+              echo "OK: target '$target'"
+            else
+              echo "MISSING: Makefile target '$target'"
+              missing=1
+            fi
+          done
+          [ $missing -eq 0 ]
+
+      - name: Validate script paths referenced in Makefile
+        run: |
+          scripts=$(grep -oE '\./[a-zA-Z0-9_-]+\.sh' Makefile | sort -u)
+          if [ -z "$scripts" ]; then
+            echo "No shell script references found in Makefile"
+            exit 0
+          fi
+          missing=0
+          for script in $scripts; do
+            if [ -f "$script" ]; then
+              echo "OK: $script"
+            else
+              echo "MISSING: $script (referenced in Makefile but not found)"
+              missing=1
+            fi
+          done
+          [ $missing -eq 0 ]
+
+      # --- Flow tests ---
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        run: python -m py_compile main.py && echo "Syntax OK"
+
+      - name: Verify lambda_handler
+        run: |
+          python -c "
+          import main
+          assert hasattr(main, 'lambda_handler') and callable(main.lambda_handler), \
+              'lambda_handler missing or not callable'
+          print('lambda_handler OK')
+          "
+
+      # --- Dry run ---
+
+      - name: Build deployment package (dry run)
+        run: zip -r deployment-package.zip main.py requirements.txt
+
+      - name: Validate deployment package
+        run: |
+          python -c "
+          import zipfile, sys
+          with zipfile.ZipFile('deployment-package.zip') as z:
+              bad = z.testzip()
+              if bad:
+                  print('Corrupt file in zip:', bad)
+                  sys.exit(1)
+              names = z.namelist()
+              assert 'main.py' in names, 'main.py missing from package'
+              print('Package OK:', names)
+          "
